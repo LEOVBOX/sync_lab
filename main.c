@@ -47,13 +47,13 @@ void initialize_random_generator() {
 	srand(time(NULL));
 }
 
-int generateRandomBit() {
+int generate_random_bit() {
     int result = rand() % 2;
-	printf("generateRandomBit: result = %d\n", result);
+	//printf("generateRandomBit: result = %d\n", result);
 	return result;
 }
 
-int countDigits(int number) {
+int count_digits(int number) {
 	if (number == 0) {
 		return 1;
 	}
@@ -68,7 +68,7 @@ int countDigits(int number) {
 }
 
 char* intToString(int number) {
-	char* result = (char*)malloc(countDigits(number) * sizeof(char));
+	char* result = (char*)malloc(count_digits(number) * sizeof(char));
 
 	sprintf(result, "%d", number);
 
@@ -110,38 +110,32 @@ void fill_storage(storage_t* storage) {
 int find_pair_count(storage_t* storage, int incr) {
     int pair_count = 0;
     snode_t* cur_node = storage->first;
-    snode_t* next_node;
-	
-    while ((cur_node != NULL) && (cur_node->next != NULL)) {
+
+    while ((cur_node != NULL) && (cur_node->next != NULL) && (cur_node->next->next) != NULL) {
         //printf("find_pair_count: cur_node = %s\n", cur_node->val);
         //printf("find_pair_count: try to take next_node\n");
-        if (cur_node->next != NULL) {
-            next_node = cur_node->next;
-            //printf("find_pair_count: next_node = %s\n", next_node->val);
-        }
-        
 		if (incr == INCREASE) {
-			if (strlen(cur_node->val) <= strlen(next_node->val)) {
+			if (strlen(cur_node->next->val) <= strlen(cur_node->next->next->val)) {
 				pair_count++;
 			}
 		}
 
 		else if (incr == DECREASE) {
-			if (strlen(cur_node->val) >= strlen(next_node->val)) {
+			if (strlen(cur_node->next->val) >= strlen(cur_node->next->next->val)) {
 				pair_count++;
                 //printf("swapped += swap(storage, cur_node, cur_node->next);\n");
             
 			}
 		}
 		else {
-			if (strlen(cur_node->val) == strlen(next_node->val)) {
+			if (strlen(cur_node->next->val) == strlen(cur_node->next->next->val)) {
 				pair_count++;
 			}
 		}
 
-		int cond = generateRandomBit();
+		int cond = generate_random_bit();
 			if (cond == 1) {
-				swapped += swap(storage, cur_node, cur_node->next);
+				swapped += swap(storage, cur_node, cur_node->next, cur_node->next->next);
 				swap_attempts++;
 			}
        
@@ -155,7 +149,7 @@ void* thread_1(void* args) {
     storage_t* storage = (storage_t*)args;
     printf("thread_1 [%d %d %ld]\n", getpid(), getppid(), pthread_self());
 
-    set_cpu(0);
+    set_cpu(1);
 
     int pair_count = 0;
 	/*while (1) {
@@ -163,8 +157,11 @@ void* thread_1(void* args) {
 		printf("thread_1 pair_count = %d\n", pair_count);
 		thread1_iter_count++;
 	}*/
+	
     pair_count = find_pair_count(storage, INCREASE);
-
+	printf("thread_1 pair_count = %d\n", pair_count);
+	thread1_iter_count++;
+	print_storage(storage);
     return NULL;
 }
 
@@ -172,7 +169,7 @@ void* thread_2(void* args) {
 	storage_t* storage = (storage_t*)args;
 	printf("thread_2 [%d %d %ld]\n", getpid(), getppid(), pthread_self());
 
-	set_cpu(1);
+	set_cpu(2);
 
 	int pair_count = 0;
 	/*while (1) {
@@ -184,7 +181,7 @@ void* thread_2(void* args) {
 	pair_count = find_pair_count(storage, DECREASE);
 	printf("thread_2 pair_count = %d\n", pair_count);
 	thread2_iter_count++;
-
+	print_storage(storage);
     return NULL;
 }
 
@@ -192,20 +189,25 @@ void* thread_3(void* args) {
 	storage_t* storage = (storage_t*)args;
 	printf("thread_3 [%d %d %ld]\n", getpid(), getppid(), pthread_self());
 
-	set_cpu(2);
+	set_cpu(3);
 
 	int pair_count = 0;
-	while (1) {
+	/*while (1) {
 		pair_count = find_pair_count(storage, EQUAL);
 		printf("thread_3 pair_count = %d\n", pair_count);
 		thread2_iter_count++;
-	}
+	}*/
+	pair_count = find_pair_count(storage, EQUAL);
+	printf("thread_3 pair_count = %d\n", pair_count);
+	thread2_iter_count++;
+	print_storage(storage);
 	return NULL;
 }
 
 int main() {
     //int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     //printf("numcores %d\n", num_cores);
+	set_cpu(0);
 	pthread_t tid;
     storage_t *s;
 	int err;
@@ -213,25 +215,34 @@ int main() {
 
 	printf("main [%d %d %ld]\n", getpid(), getppid(), pthread_self());
 
-    s = storage_init(12);
+    s = storage_init(4);
     fill_storage(s);
 
     //storage_print_stats(s);
     
     print_storage(s);
 
-	sched_yield();
 
-    err = pthread_create(&tid, NULL, thread_2, s);
+    err = pthread_create(&tid, NULL, thread_1, s);
     if (err) {
 		printf("main: pthread_create() failed: %s\n", strerror(err));
 		return -1;
 	}
 
-	pthread_join(tid, NULL);
+	err = pthread_create(&tid, NULL, thread_2, s);
+	if (err) {
+		printf("main: pthread_create() failed: %s\n", strerror(err));
+		return -1;
+	}
 
-    printf("swapped = %d\n", swapped);
-    printf("swap_attempts = %d\n", swap_attempts);
+	err = pthread_create(&tid, NULL, thread_3, s);
+	if (err) {
+		printf("main: pthread_create() failed: %s\n", strerror(err));
+		return -1;
+	}
+
+	pthread_exit(NULL);
+	//pthread_join(tid, NULL);
 
 	storage_destroy(s);
     return 0;

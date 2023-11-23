@@ -32,7 +32,7 @@ typedef struct _Storage {
 	long add_count;
 	long get_count;
 
-	//pthread_spinlock_t spinlock;
+	volatile pthread_spinlock_t spinlock;
 } storage_t;
 
 storage_t* storage_init(int max_count);
@@ -41,7 +41,7 @@ int storage_add(storage_t *s, char* val);
 char* storage_get(storage_t *s);
 void storage_print_stats(storage_t *s);
 void print_storage(storage_t* storage);
-int swap(storage_t* storage, snode_t* node_1, snode_t* node_2);
+int swap(storage_t* storage, snode_t* head_node, snode_t* node_1, snode_t* node_2);
 
 #endif //STORAGE_H
 

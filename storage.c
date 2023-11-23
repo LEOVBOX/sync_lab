@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <malloc.h>
+#include <pthread.h>
 
 #include "storage.h"
 
@@ -23,7 +24,9 @@ storage_t* storage_init(int max_count) {
 	storage_t* s = (storage_t*)malloc(sizeof(storage_t));
 	printf("%ld\n", sizeof(s));
 
-	s->first = NULL;
+	snode_t* first = malloc(sizeof(snode_t));
+	s->first = first;
+	s->first->next = NULL;
 	s->max_count = max_count;
 	s->count = 0;
 
@@ -37,6 +40,8 @@ storage_t* storage_init(int max_count) {
 	}
 	
 	printf("storage_init: storage inited\n");
+
+	pthread_spin_init(&s->spinlock, PTHREAD_PROCESS_SHARED);
 
 	return s;
 }
@@ -152,27 +157,20 @@ snode_t* find_prev(storage_t* storage, snode_t* node) {
 }
 
 
-int swap(storage_t* storage, snode_t* node_1, snode_t* node_2) {
-	// head->node_1->node_2->next
-	if(node_1 == storage->first) {
-		node_1->next = node_2->next;
-		snode_t* tmp = node_1;
-		storage->first = node_2;
-		node_2->next = tmp;
-	}
+int swap(storage_t* storage, snode_t* head_node, snode_t* node_1, snode_t* node_2) {
+	// head_node->node_1->node_2->next
+	pthread_spin_lock(&storage->spinlock);
 
-	else {
-		snode_t* head_node = find_prev(storage, node_1);
-		if (head_node == NULL) {
+	if (head_node == storage->first) {
 		printf("swap: cannot find head_node\n");
 		return 0;
-		}
-		node_1->next = node_2->next;
-		snode_t* tmp = node_1;
-		head_node->next = node_2;
-		node_2->next = tmp;
 	}
-	
+	node_1->next = node_2->next;
+	snode_t* tmp = node_1;
+	head_node->next = node_2;
+	node_2->next = tmp;
+
+	pthread_spin_unlock(&storage->spinlock);
 	return 1;
 }
 

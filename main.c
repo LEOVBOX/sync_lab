@@ -23,25 +23,8 @@ int thread3_iter_count = 0;
 int swap_attempts = 0;
 int swapped = 0;
 
+int debug_mode = 0;
 
-void set_cpu(int n) {
-	int err;
-	cpu_set_t cpuset;
-	pthread_t tid = pthread_self();
-
-	CPU_ZERO(&cpuset);
-	CPU_SET(n, &cpuset);
-
-	// Function for attaching thread to the cpu core. cpu_set_t
-	//  - struct representing the set of available processor cores.
-	err = pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
-	if (err) {
-		printf("set_cpu: pthread_setaffinity failed for cpu %d\n", n);
-		return;
-	}
-
-	printf("set_cpu: set cpu %d\n", n);
-}
 
 void initialize_random_generator() {
 	srand(time(NULL));
@@ -75,7 +58,7 @@ char* intToString(int number) {
 	return result;
 }
 
-char* createString() {
+char* create_string() {
 	const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 	int length = rand()%100;
@@ -99,7 +82,7 @@ char* createString() {
 void fill_storage(storage_t* storage) {
 	char* str;
     for (int i = 0; i < storage->max_count; i++) {
-		str = createString();
+		str = create_string();
         storage_add(storage, str);
     }
     printf("fill_storage: storage filled\n");
@@ -108,12 +91,17 @@ void fill_storage(storage_t* storage) {
 // int incr - flag for increase or decrease
 // can be INCREASE, DEGREASE or EQUAL
 int find_pair_count(storage_t* storage, int incr) {
+	pthread_spin_lock(&storage->spinlock);
     int pair_count = 0;
     snode_t* cur_node = storage->first;
-
-    while ((cur_node != NULL) && (cur_node->next != NULL) && (cur_node->next->next) != NULL) {
+	
+    for (int i = 0; i < storage->count - 2; i++) {
         //printf("find_pair_count: cur_node = %s\n", cur_node->val);
         //printf("find_pair_count: try to take next_node\n");
+		if (debug_mode) {
+			printf("\n\ncur_node = %s\ncur_node->next = %s\ncur_node->next->next = %s\n", 
+			cur_node->val, cur_node->next->val, cur_node->next->next->val);
+		}
 		if (incr == INCREASE) {
 			if (strlen(cur_node->next->val) <= strlen(cur_node->next->next->val)) {
 				pair_count++;
@@ -140,8 +128,10 @@ int find_pair_count(storage_t* storage, int incr) {
 			}
        
         cur_node = cur_node->next;
-
     }
+	
+	pthread_spin_unlock(&storage->spinlock);
+
     return pair_count;
 }
 
@@ -152,16 +142,21 @@ void* thread_1(void* args) {
     set_cpu(1);
 
     int pair_count = 0;
-	/*while (1) {
+	if (debug_mode) {
 		pair_count = find_pair_count(storage, INCREASE);
 		printf("thread_1 pair_count = %d\n", pair_count);
 		thread1_iter_count++;
-	}*/
+		print_storage(storage);
+	}
+	else {
+		while (1) {
+			printf("thread_1: start find\n");
+			pair_count = find_pair_count(storage, INCREASE);
+			printf("thread_1 pair_count = %d\n", pair_count);
+			thread1_iter_count++;
+		}
+	}
 	
-    pair_count = find_pair_count(storage, INCREASE);
-	printf("thread_1 pair_count = %d\n", pair_count);
-	thread1_iter_count++;
-	print_storage(storage);
     return NULL;
 }
 
@@ -172,16 +167,23 @@ void* thread_2(void* args) {
 	set_cpu(2);
 
 	int pair_count = 0;
-	/*while (1) {
+	if (debug_mode) {
 		pair_count = find_pair_count(storage, DECREASE);
 		printf("thread_2 pair_count = %d\n", pair_count);
 		thread2_iter_count++;
-	}*/
+	}
 
-	pair_count = find_pair_count(storage, DECREASE);
-	printf("thread_2 pair_count = %d\n", pair_count);
-	thread2_iter_count++;
-	print_storage(storage);
+	else {
+		while (1) {
+			printf("thread_1: start find\n");
+			pair_count = find_pair_count(storage, DECREASE);
+			printf("thread_2 pair_count = %d\n", pair_count);
+			thread2_iter_count++;
+		}
+	}
+	
+
+	
     return NULL;
 }
 
@@ -192,22 +194,34 @@ void* thread_3(void* args) {
 	set_cpu(3);
 
 	int pair_count = 0;
-	/*while (1) {
+
+	if (debug_mode) {
 		pair_count = find_pair_count(storage, EQUAL);
 		printf("thread_3 pair_count = %d\n", pair_count);
 		thread2_iter_count++;
-	}*/
-	pair_count = find_pair_count(storage, EQUAL);
-	printf("thread_3 pair_count = %d\n", pair_count);
-	thread2_iter_count++;
-	print_storage(storage);
+		print_storage(storage);
+	}
+
+	else {
+		while (1) {
+			printf("thread_1: start find\n");
+			pair_count = find_pair_count(storage, EQUAL);
+			printf("thread_3 pair_count = %d\n", pair_count);
+			thread2_iter_count++;
+		}
+	}
+	
 	return NULL;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     //int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     //printf("numcores %d\n", num_cores);
-	set_cpu(0);
+	if ((argc > 1) && (strcmp(argv[1], "debug") == 0)) {
+		printf("debug_mode\n");
+		debug_mode = 1;
+	}
+
 	pthread_t tid;
     storage_t *s;
 	int err;
@@ -216,6 +230,9 @@ int main() {
 	printf("main [%d %d %ld]\n", getpid(), getppid(), pthread_self());
 
     s = storage_init(4);
+	if (debug_mode) {
+		s->debug_mode = 1;
+	}
     fill_storage(s);
 
     //storage_print_stats(s);
@@ -228,6 +245,8 @@ int main() {
 		printf("main: pthread_create() failed: %s\n", strerror(err));
 		return -1;
 	}
+
+	sched_yield();
 
 	err = pthread_create(&tid, NULL, thread_2, s);
 	if (err) {

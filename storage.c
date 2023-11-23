@@ -6,10 +6,31 @@
 
 #include "storage.h"
 
+void set_cpu(int n) {
+	int err;
+	cpu_set_t cpuset;
+	pthread_t tid = pthread_self();
+
+	CPU_ZERO(&cpuset);
+	CPU_SET(n, &cpuset);
+
+	// Function for attaching thread to the cpu core. cpu_set_t
+	//  - struct representing the set of available processor cores.
+	err = pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
+	if (err) {
+		printf("set_cpu: pthread_setaffinity failed for cpu %d\n", n);
+		return;
+	}
+
+	printf("set_cpu: set cpu %d\n", n);
+}
+
 void *monitor(void *arg) {
 	storage_t *s = (storage_t *)arg;
 
-	printf("monitor: [%d %d]\n", getpid(), getppid());
+	set_cpu(0);
+
+	printf("monitor: [%d %d %ld]\n", getpid(), getppid(), pthread_self());
 
 	while (1) {
 		storage_print_stats(s);
@@ -33,11 +54,11 @@ storage_t* storage_init(int max_count) {
 	s->add_attempts = s->get_attempts = 0;
 	s->add_count = s->get_count = 0;
 
-	err = pthread_create(&s->monitor_tid, NULL, monitor, s);
+	/*err = pthread_create(&s->monitor_tid, NULL, monitor, s);
 	if (err) {
 		printf("storage_init: pthread_create() failed: %s\n", strerror(err));
 		abort();
-	}
+	}*/
 	
 	printf("storage_init: storage inited\n");
 
@@ -159,18 +180,26 @@ snode_t* find_prev(storage_t* storage, snode_t* node) {
 
 int swap(storage_t* storage, snode_t* head_node, snode_t* node_1, snode_t* node_2) {
 	// head_node->node_1->node_2->next
-	pthread_spin_lock(&storage->spinlock);
+	//pthread_spin_lock(&storage->spinlock);
 
-	if (head_node == storage->first) {
-		printf("swap: cannot find head_node\n");
-		return 0;
+	if (storage->debug_mode) {
+		printf("\n\n\n\n");
+		printf("swap: head = %s\n", head_node->val);
+		printf("swap: node_1 = %s\n", node_1->val);
+		printf("swap: node_2 = %s\n", node_2->val);
 	}
+
 	node_1->next = node_2->next;
 	snode_t* tmp = node_1;
 	head_node->next = node_2;
 	node_2->next = tmp;
 
-	pthread_spin_unlock(&storage->spinlock);
+	if (storage->debug_mode) {
+		print_storage(storage);
+		printf("\n\n\n\n");
+	}
+
+	//pthread_spin_unlock(&storage->spinlock);
 	return 1;
 }
 

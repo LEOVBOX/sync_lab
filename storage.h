@@ -11,15 +11,19 @@
 #include <pthread.h>
 
 #define DESTROY_START -128
+#define SPINLOCK 128
+#define MUTEX 127
+
 
 typedef struct _StorageNode {
         char val[100];
         struct _StorageNode* next;
-        pthread_mutex_t sync;
+        pthread_mutex_t mutex;
+		pthread_spinlock_t spinlock;
 } snode_t;
 
 typedef struct _Storage {
-	snode_t *first;
+	snode_t *head;
 
 	pthread_t monitor_tid;
 
@@ -33,11 +37,12 @@ typedef struct _Storage {
 	long get_count;
 
 	int debug_mode;
+	int sync_option;
 
-	pthread_spinlock_t spinlock;
+	
 } storage_t;
 
-storage_t* storage_init(int max_count);
+storage_t* storage_init(int max_count, int sync_option);
 void storage_destroy(storage_t *s);
 int storage_add(storage_t *s, char* val);
 char* storage_get(storage_t *s);

@@ -21,8 +21,6 @@ void set_cpu(int n) {
 		printf("set_cpu: pthread_setaffinity failed for cpu %d\n", n);
 		return;
 	}
-
-	printf("set_cpu: set cpu %d\n", n);
 }
 
 void *monitor(void *arg) {
@@ -40,14 +38,31 @@ void *monitor(void *arg) {
 	return NULL;
 }
 
-storage_t* storage_init(int max_count) {
+storage_t* storage_init(int max_count, int sync_option) {
 	int err;
 	storage_t* s = (storage_t*)malloc(sizeof(storage_t));
-	printf("%ld\n", sizeof(s));
+	s->sync_option = sync_option;
 
-	snode_t* first = malloc(sizeof(snode_t));
-	s->first = first;
-	s->first->next = NULL;
+	
+	snode_t* head = (snode_t*)malloc(sizeof(snode_t));
+	if (sync_option == SPINLOCK) {
+		if (pthread_spin_init(&head->spinlock, PTHREAD_PROCESS_SHARED) != 0) {
+			printf("Failed to initialize spinlock\n");
+        	abort();
+		}
+	}
+	else {
+		if (pthread_mutex_init(&head->mutex, NULL) != 0) {
+			printf("Failed to initialize mutex\n");
+        	abort();
+		}
+		
+	}
+	
+
+	s->head = head;
+	s->head->next = NULL;
+	
 	s->max_count = max_count;
 	s->count = 0;
 
@@ -59,10 +74,6 @@ storage_t* storage_init(int max_count) {
 		printf("storage_init: pthread_create() failed: %s\n", strerror(err));
 		abort();
 	}*/
-	
-	printf("storage_init: storage inited\n");
-
-	pthread_spin_init(&s->spinlock, PTHREAD_PROCESS_SHARED);
 
 	return s;
 }
@@ -70,16 +81,16 @@ storage_t* storage_init(int max_count) {
 void storage_destroy(storage_t *s) {
 	char* val;
 	if (s->count == 0) {
+		free(s->head);
 		return;
 	}
-	printf("storage_destroy: begin destroy\n");
-	while (s->first->next != NULL) {
+
+	while (s->head->next != NULL) {
 		val = storage_get(s);
 		printf("destroyed snode->value = %s\n", val);
 	}
-
-	val = storage_get(s);
-	printf("destroyed snode->value = %s\n", val);
+	free(s->head);
+	printf("destroyed head\n");
 }
 
 int storage_add(storage_t *s, char* val) {
@@ -96,15 +107,26 @@ int storage_add(storage_t *s, char* val) {
 		abort();
 	}
 
+	if (s->sync_option == SPINLOCK) {
+		if (pthread_spin_init(&new->spinlock, PTHREAD_PROCESS_SHARED) != 0) {
+			printf("Failed to initialize spinlock\n");
+        	abort();
+		}
+	}
+
+	else {
+		if (pthread_mutex_init(&new->mutex, NULL) != 0) {
+			printf("Failed to initialize mutex\n");
+        	abort();
+		}
+	}
+	
+
 	strcpy(new->val, val);
 	new->next = NULL;
 
-	if (!s->first)
-		s->first = new;
-	else {
-		new->next = s->first;
-		s->first = new;
-	}
+	new->next = s->head->next;
+	s->head->next = new;
 
 	s->count++;
 	s->add_count++;
@@ -118,15 +140,16 @@ char* storage_get(storage_t *s) {
 
 	assert(s->count >= 0);
 
-	if (s->count == 0)
+	if (s->count == 0) {
 		return 0;
-
-	snode_t *tmp = s->first;
+	}
+		
+	snode_t *tmp = s->head;
 
 	char* val = malloc(sizeof(tmp->val));
 
 	strcpy(val, tmp->val);
-	s->first = s->first->next;
+	s->head = s->head->next;
 
 	free(tmp);
 	s->count--;
@@ -147,40 +170,20 @@ void print_storage(storage_t* storage) {
         printf("print storage: Storage is empty\n");
         return;
     }
-	snode_t* cur = storage->first;
+	snode_t* cur = storage->head->next;
     for (int i = 0; i < storage->count; i++) {
         printf("storage[%d]->val = %s\n", i, cur->val);
 		cur = cur->next;
     }
 }
 
-snode_t* find_prev(storage_t* storage, snode_t* node) {
-	//printf("find_prev: node->val = %s\n", node->val); 
-	snode_t* cur;
-	if (storage->count == 0) {
-		//printf("find_prev: storage is empty\n");
-		return NULL;
-	}
-
-	if (storage->first!=NULL) {
-		//printf("find_prev: storage->first!=NULL\n");
-		cur = storage->first;
-	}
-
-	for (int i = 0; i < storage->count; i++) {
-		if (cur->next == node) {
-			return cur;
-		}
-		cur = cur->next;
-	}
-
-	return NULL;
-}
-
 
 int swap(storage_t* storage, snode_t* head_node, snode_t* node_1, snode_t* node_2) {
 	// head_node->node_1->node_2->next
-	//pthread_spin_lock(&storage->spinlock);
+	/*pthread_spin_lock(&head_node->spinlock);
+	pthread_spin_lock(&node_1->spinlock);
+	pthread_spin_lock(&node_2->spinlock);*/
+	
 
 	if (storage->debug_mode) {
 		printf("\n\n\n\n");
@@ -199,7 +202,12 @@ int swap(storage_t* storage, snode_t* head_node, snode_t* node_1, snode_t* node_
 		printf("\n\n\n\n");
 	}
 
-	//pthread_spin_unlock(&storage->spinlock);
+	
+	/*pthread_spin_unlock(&head_node->spinlock);
+	pthread_spin_unlock(&node_1->spinlock);
+	pthread_spin_unlock(&node_2->spinlock);
+	*/
+
 	return 1;
 }
 
